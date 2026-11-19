@@ -38,14 +38,14 @@ const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const easeOutBack = p => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
 
-/* glyphs: flowers are written in "SEER", the paper in "love", leaves in "you", ribbon in "xoxo".
+/* glyphs: flowers and leaves are written in "SEER", the paper in "love", ribbon in "xoxo".
    A word material is spelled along each screen row, so the words stay readable while the bouquet moves. */
 const GL = [' '];
 const gi = ch => { let i = GL.indexOf(ch); if (i < 0) { GL.push(ch); i = GL.length - 1; } return i; };
-const WORDS = ['SEER', 'seer', 'love', 'you', 'xoxo'].map(w => [...w].map(gi));
-const M_SEER = 200, M_seer = 201, M_LOVE = 202, M_YOU = 203, M_XO = 204;
+const WORDS = ['SEER', 'seer', 'love', 'xoxo'].map(w => [...w].map(gi));
+const M_SEER = 200, M_seer = 201, M_LOVE = 202, M_XO = 203;
 const DOTS = ['*', '.', '*', '+'].map(gi), CEN = ['@', 'o', '@'].map(gi);
-const G_DOT = gi('.'), G_MID = gi('·'), G_PLUS = gi('+'), G_STAR = gi('*'), G_S = gi('S');
+const G_DOT = gi('.'), G_MID = gi('·'), G_PLUS = gi('+'), G_STAR = gi('*');
 const pick = a => a[(rnd() * a.length) | 0];
 
 /* timeline in seconds */
@@ -186,7 +186,7 @@ function leaf(g, L, W) {
     const hw = W * Math.pow(Math.sin(Math.PI * u), 0.8);
     const p = [w * hw, 0.05 * Math.sin(Math.PI * u) * L - 0.02 * w * w, u * L];
     const rib = Math.abs(w) < 0.12, c = rib ? [110, 180, 110] : [58, 140, 74];
-    pt(g, p[0] * 0.3, p[1] * 0.3, p[2] * 0.3, p[0], p[1], p[2], c[0], c[1], c[2], M_YOU,
+    pt(g, p[0] * 0.3, p[1] * 0.3, p[2] * 0.3, p[0], p[1], p[2], c[0], c[1], c[2], M_SEER,
       (0.55 + 0.45 * u) * rr(0.8, 1) * (1 - 0.2 * Math.abs(w)));
   }
 }
@@ -380,35 +380,21 @@ for (let i = 0; i < 380; i++) {
     base: 0.3 + Math.random() * 0.7, fl: Math.random() });
 }
 
-/* ---------- tap heart: outline, blank inside, a big S made of S's ---------- */
-let HEART = [];
-function buildHeart() {
-  const HW = Math.min(W * 0.42, 190), k = HW / 2.3;
-  const nc = Math.ceil(HW / CW / 2) + 2, nr = Math.ceil(HW * 1.15 / CH / 2) + 2;
-  const inside = (dc, dr) => {
-    const x = dc * CW / k, y = -dr * CH / k + 0.15, a = x * x + y * y - 1;
-    return a * a * a - x * x * y * y * y <= 0;
-  };
-  const offW = nc * 2 + 1, offH = Math.ceil((nr * 2 + 1) * CH / CW);
-  const oc = document.createElement('canvas'); oc.width = offW; oc.height = offH;
-  const o = oc.getContext('2d', { willReadFrequently: true });
-  o.font = `700 ${HW * 0.72 / CW}px Georgia, "Times New Roman", serif`;
-  o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillStyle = '#fff';
-  o.fillText('S', offW / 2, offH / 2 - HW * 0.05 / CW);
-  const data = o.getImageData(0, 0, offW, offH).data;
-  HEART = [];
-  for (let dr = -nr; dr <= nr; dr++) for (let dc = -nc; dc <= nc; dc++) {
-    if (!inside(dc, dr)) continue;
-    const edge = !inside(dc + 1, dr) || !inside(dc - 1, dr) || !inside(dc, dr + 1) || !inside(dc, dr - 1);
-    let kind = edge ? 1 : 0;
-    if (!edge) {
-      const sx = Math.floor(dc + offW / 2), sy = Math.floor(dr * CH / CW + offH / 2);
-      if (sy >= 0 && sy < offH && data[(sy * offW + sx) * 4 + 3] > 110) kind = 2;
-    }
-    HEART.push({ dc, dr, kind });
+/* ---------- tap: letters burst out into a heart, then break apart and fall ---------- */
+const sparks = [];
+function heartBurst(x, y) {
+  if (sparks.length > 1500) return;
+  const HW = Math.min(W * 0.36, 150), k = HW / 34;
+  const n = Math.round(3.2 * HW / (CW * 1.2));
+  for (let i = 0; i < n; i++) {
+    const a = i / n * TAU, s = Math.sin(a);
+    const hx = 16 * s * s * s * k;
+    const hy = -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * k - 2.5 * k;
+    sparks.push({ x, y, hx, hy, born: last, ph: Math.random() * TAU,
+      vx: hx * 0.6 + (Math.random() - 0.5) * 40, vy: hy * 0.4 - 10 - Math.random() * 30,
+      col: counted[(Math.random() * NFL) | 0].petal, gl: WORDS[0][i % 4] });
   }
 }
-const bursts = [];
 
 function resize() {
   W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2.5);
@@ -418,14 +404,11 @@ function resize() {
   FS = clamp(Math.round(SCALE * 2.2 / (95 * 0.6)), 6, 12); // about 95 letters across the flowers
   FONT = `${FS}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
   ctx.font = FONT; CW = ctx.measureText('M').width || FS * 0.6; CH = Math.round(FS * 1.08);
-  TAG_FONT = `600 ${Math.round(FS * 2.2)}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
-  ctx.font = TAG_FONT; TAG_COLS = Math.ceil((ctx.measureText('Seer').width || FS * 5.3) / CW) + 4;
   COLS = Math.ceil(W / CW); ROWS = Math.ceil(H / CH);
   const n = COLS * ROWS;
   zb = new Float32Array(n); cg = new Uint8Array(n); cr = new Uint8ClampedArray(n);
   cgr = new Uint8ClampedArray(n); cb = new Uint8ClampedArray(n); touched = new Int32Array(n);
   CX = W / 2; CY = H * 0.5 - 0.25 * SCALE; // bouquet spans y -2.0..1.5, so its middle (-0.25) sits mid-screen
-  buildHeart();
 }
 
 /* ---------- falling petals ---------- */
@@ -437,9 +420,8 @@ function spawnPetal(x, y, col) {
 }
 
 /* ---------- the "Seer" name tag, tied to the bow with a string ---------- */
-const TG = { dot: gi('.'), dash: gi('-'), bar: gi('|'), quote: gi("'"), hole: gi('o'), bs: gi('\\'), sl: gi('/') };
-const TAG_ROWS = 5;
-let TAG_FONT = '', TAG_COLS = 13;
+const TAG = ['o------.', '| Seer |', "'------'"].map(l => [...l].map(gi));
+const TG = { dash: gi('-'), bar: gi('|'), bs: gi('\\'), sl: gi('/') };
 const inGrid = (c, r) => c >= 0 && r >= 0 && c < COLS && r < ROWS;
 
 /* ---------- frame ---------- */
@@ -509,33 +491,39 @@ function frame(now) {
     put(idx, z2, gl, R * br, Gc * br, Bc * br);
   }
 
-  /* name tag: the string runs out from the bow knot first, then the tag appears and the name types in */
-  let tagText = null, tagX = 0, tagY = 0;
+  /* name tag: the string runs out from the bow knot first, then the tag appears and the name types in.
+     The string sags and ripples, and the tag swings a little on it. */
   if (t >= T.tag) {
-    const k = project(0, RY, RR + 0.07), p = project(0.26, -1.62, 0.62);
-    const kc = Math.round(k[0] / CW), kr = Math.round(k[1] / CH);
+    const k = project(0, RY, RR + 0.07);
+    const p = project(0.26 + 0.025 * Math.sin(t * 1.1), -1.62 + 0.012 * Math.sin(t * 2.2 + 1), 0.62);
     const c0 = Math.round(p[0] / CW), r0 = Math.round(p[1] / CH);
-    const dc = c0 - kc, dr = r0 - kr, n = Math.max(1, Math.abs(dc), Math.abs(dr));
-    const dxp = dc * CW, dyp = dr * CH;
-    const sg = Math.abs(dyp) > 2 * Math.abs(dxp) ? TG.bar : Math.abs(dxp) > 2 * Math.abs(dyp) ? TG.dash : dxp * dyp > 0 ? TG.bs : TG.sl;
-    const reach = n * clamp((t - T.tag) / 0.5, 0, 1);
-    for (let s = 1; s < reach; s++) {
-      const c = kc + Math.round(dc * s / n), r = kr + Math.round(dr * s / n);
-      if (inGrid(c, r)) put(r * COLS + c, 89, sg, 226, 196, 128);
+    const hx = (c0 + 0.5) * CW, hy = (r0 + 0.5) * CH; // the tag's hole
+    const dx = hx - k[0], dy = hy - k[1], len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len, ny = dx / len;
+    if (ny < 0) { nx = -nx; ny = -ny; } // sag downwards
+    const reach = clamp((t - T.tag) / 0.5, 0, 1);
+    const steps = Math.ceil(len / Math.min(CW, CH) * 2);
+    let qx = k[0], qy = k[1];
+    for (let s = 1; s <= steps; s++) {
+      const u = s / steps;
+      if (u > reach) break;
+      const bow = Math.sin(Math.PI * u);
+      const off = len * (0.14 * bow + 0.07 * bow * Math.sin(t * 2.6 - u * 6));
+      const x = k[0] + dx * u + nx * off, y = k[1] + dy * u + ny * off;
+      const sx = x - qx, sy = y - qy; qx = x; qy = y;
+      const glyph = Math.abs(sy) > 2 * Math.abs(sx) ? TG.bar : Math.abs(sx) > 2 * Math.abs(sy) ? TG.dash : sx * sy > 0 ? TG.bs : TG.sl;
+      putPx(x, y, 89, glyph, 226, 196, 128);
     }
     if (t >= T.tag + 0.5) {
-      const last = TAG_COLS - 1, edgeR = TAG_ROWS - 1;
-      for (let r = 0; r <= edgeR; r++) for (let c = 0; c <= last; c++) {
+      const typed = Math.floor((t - T.tag - 0.5) / 0.2);
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 8; c++) {
         const cc = c0 + c, rw = r0 + r;
         if (!inGrid(cc, rw)) continue;
-        let glyph = 0;
-        if (r === 0 && c === 0) glyph = TG.hole;
-        else if (r === 0 || r === edgeR) glyph = c === 0 || c === last ? (r === 0 ? TG.dot : TG.quote) : TG.dash;
-        else if (c === 0 || c === last) glyph = TG.bar;
-        put(rw * COLS + cc, 90, glyph, 214, 174, 96);
+        const name = r === 1 && c >= 2 && c <= 5;
+        const glyph = name && c - 2 >= typed ? 0 : TAG[r][c];
+        if (name) put(rw * COLS + cc, 90, glyph, 255, 226, 150);
+        else put(rw * COLS + cc, 90, glyph, 214, 174, 96);
       }
-      tagText = 'Seer'.slice(0, Math.floor((t - T.tag - 0.5) / 0.18));
-      tagX = (c0 + TAG_COLS / 2) * CW; tagY = (r0 + TAG_ROWS / 2) * CH;
     }
   }
 
@@ -557,43 +545,21 @@ function frame(now) {
     putPx(p.x, p.y, 100, p.gl, p.col[0] * fade, p.col[1] * fade, p.col[2] * fade);
   }
 
-  /* tap hearts: pop out (0-0.5s), hold with the S inside (to 1.7s), then crumble and fall */
-  for (let i = bursts.length - 1; i >= 0; i--) {
-    const B = bursts[i], a = (now - B.born) / 1000;
-    if (a > 3.4) { bursts.splice(i, 1); continue; }
-    if (a < 1.7) {
-      const grow = a < 0.5 ? easeOutBack(a / 0.5) : 1;
-      if (a > 0.25) {
-        const f = clamp((a - 0.25) / 0.3, 0, 1);
-        for (const h of HEART) {
-          if (h.kind === 1) continue;
-          const c = B.c0 + h.dc, r = B.r0 + h.dr;
-          if (!inGrid(c, r)) continue;
-          if (h.kind === 2) put(r * COLS + c, 95, G_S, 255 * f, 236 * f, 242 * f);
-          else put(r * COLS + c, 95, 0, 0, 0, 0);
-        }
-      }
-      for (const p of B.parts) {
-        const c = B.c0 + Math.round(p.dc * grow), r = B.r0 + Math.round(p.dr * grow);
-        if (!inGrid(c, r)) continue;
-        const w = 0.8 + 0.2 * Math.sin(a * 8 + p.ph);
-        put(r * COLS + c, 96, w > 0.97 ? G_PLUS : G_STAR, 255 * w, 92 * w, 142 * w);
-      }
+  /* tap sparks: fly out into a heart (0-0.3s), a beat to read it, then break apart and fall */
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i], a = (now - p.born) / 1000;
+    let x, y, f = 1;
+    if (a < 0.45) {
+      const e = 1 - Math.pow(1 - Math.min(1, a / 0.3), 3);
+      x = p.x + p.hx * e; y = p.y + p.hy * e;
     } else {
-      const d = a - 1.7, fade = 1 - d / 1.7;
-      if (d < 0.4) {
-        const f = 1 - d / 0.4;
-        for (const h of HEART) {
-          if (h.kind !== 2) continue;
-          const c = B.c0 + h.dc, r = B.r0 + h.dr + Math.round(d * 6);
-          if (inGrid(c, r)) put(r * COLS + c, 95, G_S, 255 * f, 236 * f, 242 * f);
-        }
-      }
-      for (const p of B.parts) {
-        putPx((B.c0 + p.dc) * CW + p.vx * d, (B.r0 + p.dr) * CH + p.vy * d + 70 * d * d, 96, G_STAR,
-          255 * fade, 92 * fade, 142 * fade);
-      }
+      const d = a - 0.45;
+      if (d > 1.6) { sparks.splice(i, 1); continue; }
+      x = p.x + p.hx + p.vx * d + Math.sin(d * 3 + p.ph) * 6;
+      y = p.y + p.hy + p.vy * d + 80 * d * d;
+      f = 1 - d / 1.6;
     }
+    putPx(x, y, 96, p.gl, p.col[0] * f, p.col[1] * f, p.col[2] * f);
   }
 
   /* draw */
@@ -605,20 +571,10 @@ function frame(now) {
     ctx.fillStyle = css(cr[idx], cgr[idx], cb[idx]);
     ctx.fillText(GL[g], (idx % COLS) * CW, ((idx / COLS) | 0) * CH);
   }
-  if (tagText) {
-    ctx.font = TAG_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgb(255,226,150)';
-    ctx.fillText(tagText, tagX, tagY);
-    ctx.textAlign = 'left';
-  }
   requestAnimationFrame(frame);
 }
 
-cvs.addEventListener('pointerdown', e => {
-  if (bursts.length > 5) bursts.shift();
-  bursts.push({ c0: Math.round(e.clientX / CW), r0: Math.round(e.clientY / CH), born: last,
-    parts: HEART.filter(h => h.kind === 1).map(h => ({ dc: h.dc, dr: h.dr, ph: Math.random() * TAU,
-      vx: (Math.random() - 0.5) * 60 + h.dc * CW * 0.8, vy: -20 - Math.random() * 40 + h.dr * CH * 0.3 })) });
-});
+cvs.addEventListener('pointerdown', e => heartBurst(e.clientX, e.clientY));
 addEventListener('resize', resize);
 if (document.fonts && document.fonts.load) document.fonts.load('10px "JetBrains Mono"').then(resize, () => {});
 resize();
