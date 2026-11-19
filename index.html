@@ -380,19 +380,31 @@ for (let i = 0; i < 380; i++) {
     base: 0.3 + Math.random() * 0.7, fl: Math.random() });
 }
 
-/* ---------- tap: letters burst out into a heart, then break apart and fall ---------- */
+/* ---------- tap: the letters around the tap splash out into a heart and crumble at once ---------- */
 const sparks = [];
 function heartBurst(x, y) {
   if (sparks.length > 1500) return;
-  const HW = Math.min(W * 0.36, 150), k = HW / 34;
+  const HW = Math.min(W * 0.36, 150) * 0.6, k = HW / 34;
   const n = Math.round(3.2 * HW / (CW * 1.2));
+  // letters drawn on the last frame near the tap (the grid still holds that frame)
+  const tc = (x / CW) | 0, tr = (y / CH) | 0, src = [];
+  for (let r = tr - 3; r <= tr + 3; r++) for (let c = tc - 5; c <= tc + 5; c++) {
+    if (!inGrid(c, r)) continue;
+    const idx = r * COLS + c;
+    if (zb[idx] > -1e9 && cg[idx]) src.push(idx);
+  }
   for (let i = 0; i < n; i++) {
     const a = i / n * TAU, s = Math.sin(a);
     const hx = 16 * s * s * s * k;
     const hy = -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * k - 2.5 * k;
+    let col = [255, 170, 200], gl = WORDS[0][i % 4];
+    if (src.length) {
+      const idx = src[(Math.random() * src.length) | 0];
+      col = [Math.min(255, cr[idx] * 1.25), Math.min(255, cgr[idx] * 1.25), Math.min(255, cb[idx] * 1.25)];
+      gl = cg[idx];
+    }
     sparks.push({ x, y, hx, hy, born: last, ph: Math.random() * TAU,
-      vx: hx * 0.6 + (Math.random() - 0.5) * 40, vy: hy * 0.4 - 10 - Math.random() * 30,
-      col: counted[(Math.random() * NFL) | 0].petal, gl: WORDS[0][i % 4] });
+      vx: hx * 0.8 + (Math.random() - 0.5) * 30, vy: hy * 0.5 - 10 - Math.random() * 25, col, gl });
   }
 }
 
@@ -545,19 +557,19 @@ function frame(now) {
     putPx(p.x, p.y, 100, p.gl, p.col[0] * fade, p.col[1] * fade, p.col[2] * fade);
   }
 
-  /* tap sparks: fly out into a heart (0-0.3s), a beat to read it, then break apart and fall */
+  /* tap sparks: splash out into a heart (0-0.25s), then crumble and fall straight away */
   for (let i = sparks.length - 1; i >= 0; i--) {
     const p = sparks[i], a = (now - p.born) / 1000;
     let x, y, f = 1;
-    if (a < 0.45) {
-      const e = 1 - Math.pow(1 - Math.min(1, a / 0.3), 3);
+    if (a < 0.25) {
+      const e = 1 - Math.pow(1 - a / 0.25, 3);
       x = p.x + p.hx * e; y = p.y + p.hy * e;
     } else {
-      const d = a - 0.45;
-      if (d > 1.6) { sparks.splice(i, 1); continue; }
-      x = p.x + p.hx + p.vx * d + Math.sin(d * 3 + p.ph) * 6;
-      y = p.y + p.hy + p.vy * d + 80 * d * d;
-      f = 1 - d / 1.6;
+      const d = a - 0.25;
+      if (d > 1.3) { sparks.splice(i, 1); continue; }
+      x = p.x + p.hx + p.vx * d + Math.sin(d * 3 + p.ph) * 5;
+      y = p.y + p.hy + p.vy * d + 90 * d * d;
+      f = 1 - d / 1.3;
     }
     putPx(x, y, 96, p.gl, p.col[0] * f, p.col[1] * f, p.col[2] * f);
   }
