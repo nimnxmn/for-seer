@@ -25,7 +25,6 @@ html, body { height: 100%; margin: 0; background: var(--night); overflow: hidden
 <script>
 (() => {
 const TAU = Math.PI * 2;
-const MSG = ['Love You', '6767'];
 const cvs = document.getElementById('c');
 const ctx = cvs.getContext('2d', { alpha: false });
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -39,7 +38,6 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const easeOutBack = p => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
-const easeInOut = p => p * p * (3 - 2 * p);
 
 /* glyphs: flowers and leaves are written in "SEER", the paper in "love", ribbon in "xoxo".
    A word material is spelled along each screen row, so the words stay readable while the bouquet moves. */
@@ -52,7 +50,7 @@ const G_DOT = gi('.'), G_MID = gi('·'), G_PLUS = gi('+'), G_STAR = gi('*');
 const pick = a => a[(rnd() * a.length) | 0];
 
 /* timeline in seconds */
-const T = { paper: 1.4, fill: 3.4, bloom: 4.6, step: 0.62, dur: 1.7, ribbon: 15.2, tag: 16.9, petals: 16.2, text: 17.6, burst: 26.5 };
+const T = { paper: 1.4, fill: 3.4, bloom: 4.6, step: 0.62, dur: 1.7, ribbon: 15.2, tag: 16.9, petals: 16.2 };
 
 /* ---------- model: groups (a flower, a sheet of paper...) holding points ---------- */
 const G = [];
@@ -362,46 +360,11 @@ function css(r, g, b) {
   return CC[k] || (CC[k] = `rgb(${(r >> 3) << 3},${(g >> 3) << 3},${(b >> 3) << 3})`);
 }
 
-/* ---------- stars: some gather into the message, hold, then burst back into the sky ---------- */
+/* ---------- stars ---------- */
 const stars = [];
-function addStar() {
+for (let i = 0; i < 380; i++) {
   stars.push({ x: Math.random(), y: Math.random(), ph: Math.random() * TAU, sp: 0.6 + Math.random() * 2.2,
-    base: 0.3 + Math.random() * 0.7, fl: Math.random(), tx: -1, ty: -1, dl: 0, bx: 0, by: 0, done: false,
-    tg: Math.random() < 0.75 ? G_STAR : G_PLUS });
-}
-for (let i = 0; i < 380; i++) addStar();
-
-function buildText() {
-  const top = CY - 1.5 * SCALE, band = Math.max(top, H * 0.12);
-  const offW = COLS, offH = Math.ceil(H / CW);
-  const oc = document.createElement('canvas'); oc.width = offW; oc.height = offH;
-  const o = oc.getContext('2d', { willReadFrequently: true });
-  let fs = band * 0.36 / CW;
-  const setF = () => { o.font = `italic 700 ${fs}px Georgia, "Times New Roman", serif`; };
-  setF();
-  const tw = Math.max(...MSG.map(l => o.measureText(l).width));
-  if (tw > offW * 0.88) { fs *= offW * 0.88 / tw; setF(); }
-  o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillStyle = '#fff';
-  const cyPx = band * 0.5, lh = fs * 1.05;
-  MSG.forEach((l, i) => o.fillText(l, offW / 2, cyPx / CW + (i - (MSG.length - 1) / 2) * lh));
-  const data = o.getImageData(0, 0, offW, offH).data;
-  const targets = [];
-  for (let r = 0; r < ROWS; r++) {
-    const py = Math.floor((r + 0.5) * CH / CW);
-    if (py >= offH) break;
-    for (let c = 0; c < COLS; c++) if (data[(py * offW + c) * 4 + 3] > 60) targets.push([(c + 0.5) / COLS, (r + 0.5) / ROWS]);
-  }
-  while (stars.length < targets.length + 300) addStar();
-  const order = stars.map((_, i) => i).sort(() => Math.random() - 0.5);
-  stars.forEach(s => { s.tx = -1; });
-  targets.forEach((tg, k) => {
-    const s = stars[order[k]];
-    s.tx = tg[0]; s.ty = tg[1]; s.dl = Math.random() * 1.8;
-    // burst: fly away from the middle of the words, a little fanned out
-    const a = Math.atan2(tg[1] * H - cyPx, tg[0] * W - W / 2) + (Math.random() - 0.5) * 1.0;
-    const dist = (0.15 + Math.random() * 0.45) * Math.max(W, H);
-    s.bx = Math.cos(a) * dist / W; s.by = Math.sin(a) * dist / H;
-  });
+    base: 0.3 + Math.random() * 0.7, fl: Math.random() });
 }
 
 /* ---------- tap: the letters around the tap splash out into a heart and crumble at once ---------- */
@@ -436,7 +399,7 @@ function resize() {
   W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2.5);
   cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  SCALE = Math.min(H * 0.74 / 3.55, W * 0.94 / 3.3);
+  SCALE = Math.min(H * 0.86 / 3.55, W * 0.94 / 3.3);
   FS = clamp(Math.round(SCALE * 2.2 / (95 * 0.6)), 6, 12); // about 95 letters across the flowers
   FONT = `${FS}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
   ctx.font = FONT; CW = ctx.measureText('M').width || FS * 0.6; CH = Math.round(FS * 1.08);
@@ -444,8 +407,7 @@ function resize() {
   const n = COLS * ROWS;
   zb = new Float32Array(n); cg = new Uint8Array(n); cr = new Uint8ClampedArray(n);
   cgr = new Uint8ClampedArray(n); cb = new Uint8ClampedArray(n); touched = new Int32Array(n);
-  CX = W / 2; CY = H * 0.975 - 2.0 * SCALE; // bouquet sits low (its bottom y=-2.0 near the bottom edge); the message goes above
-  buildText();
+  CX = W / 2; CY = H * 0.5 - 0.25 * SCALE; // bouquet spans y -2.0..1.5, so its middle (-0.25) sits mid-screen
 }
 
 /* ---------- falling petals ---------- */
@@ -462,7 +424,7 @@ const TG = { dash: gi('-'), bar: gi('|'), bs: gi('\\'), sl: gi('/') };
 const inGrid = (c, r) => c >= 0 && r >= 0 && c < COLS && r < ROWS;
 
 /* ---------- frame ---------- */
-let t0 = performance.now() - (reduce ? 30000 : 0), last = performance.now(), petalAcc = 0;
+let t0 = performance.now() - (reduce ? 26000 : 0), last = performance.now(), petalAcc = 0;
 
 function frame(now) {
   const t = (now - t0) / 1000, dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
@@ -474,35 +436,11 @@ function frame(now) {
   zb.fill(-1e9); nt = 0;
 
   /* stars */
-  const conv = t - T.text, bt = t - T.burst, BD = 2.4;
   for (const s of stars) {
-    let x = s.x + Math.sin(t * 0.05 + s.ph) * 0.004, y = (s.y + t * 0.0016 * s.base) % 1;
+    const x = s.x + Math.sin(t * 0.05 + s.ph) * 0.004, y = (s.y + t * 0.0016 * s.base) % 1;
     let v = s.base * (0.55 + 0.45 * Math.sin(t * s.sp + s.ph)); v *= v;
     const fp = (t * 0.11 + s.fl) % 1;
     if (fp < 0.02) v = Math.max(v, 1.2 * (1 - fp / 0.02));
-    if (s.tx >= 0 && !s.done && conv > s.dl) {
-      let gl, R, Gc, Bc;
-      if (bt < 0) { // gather, then hold as the message
-        const p = easeInOut(clamp((conv - s.dl) / 2.6, 0, 1));
-        x += (s.tx - x) * p; y += (s.ty - y) * p;
-        if (p >= 1) { const w = 0.72 + 0.28 * Math.sin(t * 1.7 + s.ph); gl = w > 0.93 ? G_PLUS : s.tg; R = 255 * w; Gc = 178 * w; Bc = 206 * w; }
-        else { gl = G_MID; R = 240; Gc = 220; Bc = 235; }
-      } else { // burst outwards with a flash, cooling from pink back to starlight
-        const e = 1 - Math.pow(1 - Math.min(1, bt / BD), 3);
-        x = s.tx + s.bx * e; y = s.ty + s.by * e;
-        if (bt >= BD) {
-          s.done = true;
-          s.x = ((x - Math.sin(t * 0.05 + s.ph) * 0.004) % 1 + 1) % 1;
-          s.y = ((y - t * 0.0016 * s.base) % 1 + 1) % 1;
-        }
-        const k = 1 - Math.min(1, bt / BD), w = (bt < 0.12 ? 1.35 : 1) * (k + (1 - k) * Math.min(1, v + 0.15));
-        gl = bt < 0.6 ? s.tg : w > 0.6 ? G_PLUS : G_MID;
-        R = (255 * k + 195 * (1 - k)) * w; Gc = (178 * k + 205 * (1 - k)) * w; Bc = (206 * k + 235 * (1 - k)) * w;
-      }
-      const c = (x * COLS) | 0, r = (y * ROWS) | 0;
-      if (c >= 0 && r >= 0 && c < COLS && r < ROWS) put(r * COLS + c, -90, gl, R, Gc, Bc);
-      continue;
-    }
     if (v < 0.1) continue;
     const c = (x * COLS) | 0, r = (y * ROWS) | 0;
     if (c < 0 || r < 0 || c >= COLS || r >= ROWS) continue;
