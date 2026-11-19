@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bouquet for Seer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one full-bleed night canvas drawn in letters, nothing else on screen */
+:root {
+  --night: #040406;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; background: var(--night); overflow: hidden; }
+#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; cursor: pointer; }
+</style>
+
+</head>
+<body>
+<canvas id="c" aria-label="An animated bouquet for Seer drawn in letters; tapping makes a heart with an S inside"></canvas>
+
+<script>
+(() => {
+const TAU = Math.PI * 2;
+const cvs = document.getElementById('c');
+const ctx = cvs.getContext('2d', { alpha: false });
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const BG = getComputedStyle(document.documentElement).getPropertyValue('--night').trim() || '#040406';
+
+/* ---------- helpers ---------- */
+let seed = 20261119;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const rr = (a, b) => a + (b - a) * rnd();
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const easeOutBack = p => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
+
+/* glyphs: flowers are written in "SEER", the paper in "love", leaves in "you", ribbon in "xoxo".
+   A word material is spelled along each screen row, so the words stay readable while the bouquet moves. */
+const GL = [' '];
+const gi = ch => { let i = GL.indexOf(ch); if (i < 0) { GL.push(ch); i = GL.length - 1; } return i; };
+const WORDS = ['SEER', 'seer', 'love', 'you', 'xoxo'].map(w => [...w].map(gi));
+const M_SEER = 200, M_seer = 201, M_LOVE = 202, M_YOU = 203, M_XO = 204;
+const DOTS = ['*', '.', '*', '+'].map(gi), CEN = ['@', 'o', '@'].map(gi);
+const G_DOT = gi('.'), G_MID = gi('·'), G_PLUS = gi('+'), G_STAR = gi('*'), G_S = gi('S');
+const pick = a => a[(rnd() * a.length) | 0];
+
+/* timeline in seconds */
+const T = { paper: 1.4, fill: 3.4, bloom: 4.6, step: 0.62, dur: 1.7, ribbon: 15.2, tag: 16.9, petals: 16.2 };
+
+/* ---------- model: groups (a flower, a sheet of paper...) holding points ---------- */
+const G = [];
+function group(C, N, o = {}) {
+  let U = [1, 0, 0], V = [0, 1, 0], Nn = [0, 0, 1];
+  if (N) {
+    Nn = norm(N);
+    const up = Math.abs(Nn[1]) > 0.95 ? [1, 0, 0] : [0, 1, 0];
+    U = norm(cross(up, Nn)); V = cross(Nn, U);
+    if (o.spin !== false) {
+      const a = rnd() * TAU, ca = Math.cos(a), sa = Math.sin(a);
+      const U2 = [U[0] * ca + V[0] * sa, U[1] * ca + V[1] * sa, U[2] * ca + V[2] * sa];
+      V = [V[0] * ca - U[0] * sa, V[1] * ca - U[1] * sa, V[2] * ca - U[2] * sa]; U = U2;
+    }
+  }
+  G.push(Object.assign({ C, U, V, N: Nn, appearAt: 0, bloomAt: -1, bloomDur: 1, counted: false, wind: 0,
+    ph: rnd() * TAU, b: 1, petal: [255, 255, 255], size: 0.2, tint: false, wx: 0, wy: 0, sx: 0, sy: 0 }, o));
+  return G.length - 1;
+}
+const PG = [], PL = [], PC = [], PS = [], PGl = [], PD = [];
+function pt(g, cx, cy, cz, ox, oy, oz, r, gg, b, glyph, sh, d) {
+  PG.push(g); PL.push(cx, cy, cz, ox, oy, oz); PC.push(r, gg, b); PGl.push(glyph); PS.push(sh); PD.push(d || 0);
+}
+const DEN = 3600; // points per unit area
+
+/* petals arranged in a ring; each point knows where it sits in the bud and in the open flower */
+function petalRing(g, s, n, L, r0, phiO, phiC, col, shadeBase, off, droop, widthMul) {
+  const midR = r0 + L * 0.55 * Math.sin(phiO);
+  const wmax = TAU * midR / n * widthMul;
+  const per = Math.max(8, Math.round(L * wmax * 0.75 * DEN * 1.6));
+  for (let k = 0; k < n; k++) {
+    const th0 = off + k * TAU / n + rr(-0.04, 0.04);
+    const lk = L * rr(0.88, 1.06), j = rr(0.8, 1.08);
+    for (let m = 0; m < per; m++) {
+      const t = rnd(), w = rnd() * 2 - 1;
+      const hw = wmax * 0.5 * Math.sqrt(Math.sin(Math.PI * (0.06 + 0.9 * t)));
+      const rad = r0 + t * lk;
+      const th = th0 + (w * hw) / Math.max(rad, 0.01);
+      const ct = Math.cos(th), st = Math.sin(th);
+      const ro = r0 + t * lk * Math.sin(phiO), zo = t * lk * Math.cos(phiO) - droop * t * t;
+      const rc = r0 * 0.6 + t * lk * 0.45 * Math.sin(phiC), zc = t * lk * 0.45 * Math.cos(phiC);
+      const sh = shadeBase * (0.5 + 0.5 * t) * rr(0.85, 1) * (1 - 0.6 * Math.pow(Math.abs(w), 3));
+      pt(g, ct * rc, st * rc, zc, ct * ro, st * ro, zo, col[0] * j, col[1] * j, col[2] * j, M_SEER, sh);
+    }
+  }
+}
+function disc(g, R, h, base, cenCol, ringCol) {
+  const n = Math.max(20, Math.round(Math.PI * R * R * DEN * 2.2));
+  for (let m = 0; m < n; m++) {
+    const r = R * Math.sqrt(rnd()), a = rnd() * TAU, q = r / R;
+    const z = h * (1 - q * q) + base;
+    const inner = q < 0.55, c = inner ? cenCol : ringCol;
+    pt(g, Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6, z * 0.8, Math.cos(a) * r, Math.sin(a) * r, z,
+      c[0], c[1], c[2], pick(CEN), inner ? rr(0.45, 0.8) : rr(0.7, 1));
+  }
+}
+function gerbera(g, s, col, cen, n = 26, narrow = 1) {
+  petalRing(g, s, n, s * 0.8, s * 0.2, 1.42, 0.18, col, 1.0, rnd() * TAU, s * 0.06, 1.0 * narrow);
+  petalRing(g, s, Math.round(n * 0.8), s * 0.56, s * 0.18, 1.12, 0.12, col.map(c => c * 0.88), 0.9, rnd() * TAU, 0, 1.1 * narrow);
+  disc(g, s * 0.2, s * 0.07, s * 0.03, cen, [205, 165, 70]);
+}
+function daisy(g, s, col, cen, n = 14) {
+  petalRing(g, s, n, s * 0.78, s * 0.26, 1.4, 0.2, col, 1.0, rnd() * TAU, s * 0.05, 1.0);
+  disc(g, s * 0.26, s * 0.15, s * 0.02, cen, cen.map(c => c * 0.85));
+}
+function rose(g, s, col) {
+  const nL = 7;
+  for (let l = 0; l < nL; l++) {
+    const f = l / (nL - 1);
+    const pc = l < 2 ? 3 : l < 4 ? 4 : 5;
+    const len = s * (0.32 + 0.68 * f), rb = s * 0.05 * f;
+    const aO = 0.18 + 1.12 * Math.pow(f, 1.25), aC = 0.06 + 0.22 * f;
+    const width = TAU / pc * 1.4, start = rnd() * TAU;
+    const n = Math.round(DEN * 2.0 * (TAU * (rb + 0.5 * len * Math.sin(aO)) + 0.05) * len * 1.2);
+    const lc = col.map(c => c * (0.72 + 0.28 * f));
+    for (let m = 0; m < n; m++) {
+      const k = (rnd() * pc) | 0, u = rnd(), v = rnd();
+      if (v > 1 - 0.4 * (2 * u - 1) ** 2) continue;
+      const ang = start + k * TAU / pc + (u - 0.5) * width;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const cup = 0.05 * s * Math.sin(Math.PI * u) * v;
+      const ro = rb + v * len * Math.sin(aO) + 0.1 * s * v * v * f - cup;
+      const zo = v * len * Math.cos(aO) - 0.03 * s * v * v * f;
+      const rc = rb * 0.4 + v * len * 0.55 * Math.sin(aC), zc = v * len * 0.7 * Math.cos(aC);
+      pt(g, ca * rc, sa * rc, zc, ca * ro, sa * ro, zo, lc[0], lc[1], lc[2],
+        M_SEER, (0.42 + 0.33 * f + 0.3 * v) * rr(0.85, 1));
+    }
+  }
+}
+function pom(g, s, col) {
+  const n = Math.round(TAU * s * s * DEN * 2.5);
+  for (let m = 0; m < n; m++) {
+    const th = rnd() * TAU, ph = Math.acos(rnd());
+    const ruf = Math.sin(9 * th) * Math.sin(7 * ph + th);
+    const rf = s * (0.82 + 0.18 * ruf);
+    const ox = rf * Math.sin(ph) * Math.cos(th), oy = rf * Math.sin(ph) * Math.sin(th), oz = rf * Math.cos(ph) * 0.8;
+    pt(g, ox * 0.35, oy * 0.35, oz * 0.35, ox, oy, oz, col[0], col[1], col[2],
+      M_SEER, (0.5 + 0.5 * Math.cos(ph)) * (0.8 + 0.2 * ruf) * rr(0.8, 1));
+  }
+}
+function breath(g, col, R = 0.15) {
+  for (let f = 0; f < 38; f++) {
+    let cx, cy, cz;
+    do { cx = rr(-1, 1); cy = rr(-1, 1); cz = rnd(); } while (cx * cx + cy * cy + cz * cz > 1);
+    cx *= R; cy *= R; cz *= R * 0.5;
+    for (let k = 0; k < 4; k++) {
+      const x = cx + rr(-0.01, 0.01), y = cy + rr(-0.01, 0.01), z = cz + rr(-0.01, 0.01), j = rr(0.85, 1.05);
+      pt(g, x * 0.25, y * 0.25, z * 0.25, x, y, z, col[0] * j, col[1] * j, col[2] * j, pick(DOTS), rr(0.7, 1));
+    }
+  }
+}
+function goldenrod(g, len) {
+  const stem = s => [0, 0.25 * s * s, s];
+  for (let i = 0; i < 50; i++) {
+    const p = stem(rnd() * len);
+    pt(g, p[0] * 0.3, p[1] * 0.3, p[2] * 0.3, p[0], p[1], p[2], 120, 150, 60, G_DOT, rr(0.5, 0.8));
+  }
+  for (let k = 0; k <= 8; k++) {
+    const base = stem(len * (0.3 + 0.7 * k / 8));
+    const dir = k === 8 ? [0, 0.2, 1] : norm([(k % 2 ? 1 : -1) * 0.8, 0.35, 0.55]);
+    const bl = rr(0.05, 0.11) * (1 - 0.4 * k / 8);
+    for (let d = 0; d < 16; d++) {
+      const l = rnd() * bl;
+      const p = [base[0] + dir[0] * l + rr(-0.012, 0.012), base[1] + dir[1] * l + rr(-0.012, 0.012), base[2] + dir[2] * l + rr(-0.012, 0.012)];
+      const c = rnd() < 0.8 ? [232, 206, 70] : [196, 190, 64], j = rr(0.8, 1.05);
+      pt(g, p[0] * 0.3, p[1] * 0.3, p[2] * 0.3, p[0], p[1], p[2], c[0] * j, c[1] * j, c[2] * j, pick(DOTS), rr(0.7, 1));
+    }
+  }
+}
+function leaf(g, L, W) {
+  const n = Math.round(L * W * DEN * 1.8);
+  for (let m = 0; m < n; m++) {
+    const u = rnd(), w = rnd() * 2 - 1;
+    const hw = W * Math.pow(Math.sin(Math.PI * u), 0.8);
+    const p = [w * hw, 0.05 * Math.sin(Math.PI * u) * L - 0.02 * w * w, u * L];
+    const rib = Math.abs(w) < 0.12, c = rib ? [110, 180, 110] : [58, 140, 74];
+    pt(g, p[0] * 0.3, p[1] * 0.3, p[2] * 0.3, p[0], p[1], p[2], c[0], c[1], c[2], M_YOU,
+      (0.55 + 0.45 * u) * rr(0.8, 1) * (1 - 0.2 * Math.abs(w)));
+  }
+}
+
+/* wrapping */
+const YB = -1.95;
+const coneR = y => 0.14 + Math.pow(clamp((y - YB) / 1.65, 0, 1), 1.15) * 0.92;
+const LIGHT = norm([-0.5, 0.6, 0.8]);
+const lambert = n => Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]);
+function kraftCone(g) {
+  for (let m = 0; m < 11000; m++) {
+    const th = rr(-Math.PI, Math.PI), ytop = -0.6 + 0.4 * (1 - Math.cos(th)) / 2;
+    const y = rr(YB, ytop), r = coneR(y) * 0.97;
+    const x = r * Math.sin(th), z = r * Math.cos(th);
+    let sh = Math.cos(th) < 0 ? rr(0.18, 0.3)
+      : (0.3 + 0.7 * lambert(norm([Math.sin(th), 0.45, Math.cos(th)]))) * (0.86 + 0.14 * Math.cos(th * 9 + y * 2)) * rr(0.9, 1);
+    if (ytop - y < 0.03) sh *= 1.25;
+    const j = rr(0.92, 1.05);
+    pt(g, x, y, z, x, y, z, 198 * j, 148 * j, 98 * j, M_LOVE, sh, (y - YB) / 2.2 * 1.6 + rnd() * 0.4);
+  }
+}
+function backPanels(g) {
+  [-0.8, -0.28, 0.25, 0.78].forEach((be, i) => {
+    const B = [Math.sin(be) * 0.45, -0.5, -0.45 - 0.04 * i];
+    const d = norm([Math.sin(be), Math.cos(be), -0.3]), e = norm([Math.cos(be), -Math.sin(be), 0]);
+    const h = rr(1.55, 1.75), w = rr(0.95, 1.15), n = Math.round(h * w * DEN * 0.55);
+    const ps = rr(0.55, 0.85), tone = i % 2 ? [186, 136, 92] : [206, 156, 106];
+    for (let m = 0; m < n; m++) {
+      const u = rr(-0.5, 0.5), v = rnd();
+      if (v > 1 - 0.32 * Math.abs(2 * u) + 0.06 * Math.sin(u * 9)) continue;
+      const bulge = 0.14 * (1 - (2 * u) ** 2) * v;
+      const x = B[0] + d[0] * v * h + e[0] * u * w, y = B[1] + d[1] * v * h + e[1] * u * w, z = B[2] + d[2] * v * h + bulge;
+      const sh = ps * (0.55 + 0.45 * v) * (Math.abs(u - 0.12) < 0.02 ? 0.7 : 1) * (u < 0.12 ? 0.85 : 1) * rr(0.9, 1);
+      pt(g, x, y, z, x, y, z, tone[0], tone[1], tone[2], M_LOVE, sh, 0.6 + v * 1.2 + rnd() * 0.3);
+    }
+  });
+}
+function cellophane(g) {
+  const SL = gi('/'), BS = gi('\\');
+  for (let m = 0; m < 2400; m++) {
+    const th = rr(-1.7, 1.7), y = rr(YB, -0.25);
+    let r = coneR(y) * 1.1 + 0.02;
+    if (y > -0.6) r += (y + 0.6) * 0.5;
+    const sheen = 0.25 + 0.6 * Math.pow(Math.max(0, Math.cos(th * 3 + 0.6)), 6);
+    if (rnd() > 0.2 + sheen * 0.6) continue;
+    const x = r * Math.sin(th), z = r * Math.cos(th);
+    pt(g, x, y, z, x, y, z, 175, 195, 215, sheen > 0.5 ? (th < 0 ? SL : BS) : G_DOT, sheen * rr(0.6, 1),
+      (y - YB) / 2.2 * 1.6 + rnd() * 0.5);
+  }
+}
+const RY = -1.42, RR = coneR(RY) + 0.035;
+function ribbonBand(g) {
+  for (let m = 0; m < 900; m++) {
+    const th = rr(-Math.PI, Math.PI), y = RY + rr(-0.045, 0.045);
+    const x = RR * Math.sin(th), z = RR * Math.cos(th);
+    const sh = Math.cos(th) < 0 ? 0.3 : (0.35 + 0.65 * lambert(norm([Math.sin(th), 0.2, Math.cos(th)]))) * rr(0.85, 1);
+    pt(g, x, y, z, x, y, z, 238, 118, 168, M_XO, sh, ((th + Math.PI) / TAU) * 0.9);
+  }
+}
+function ribbonBow(g) {
+  for (const k of [-1, 1]) {
+    for (let m = 0; m < 420; m++) {
+      const ps = rnd() * TAU, rho = rr(0.62, 1);
+      const x = k * (0.13 + 0.13 * Math.cos(ps) * rho), y = 0.035 + 0.07 * Math.sin(ps) * rho, z = 0.03 * (1 + Math.sin(ps));
+      pt(g, x * 0.1, y * 0.1, z * 0.1, x, y, z, 240, 122, 172, M_XO, (0.55 + 0.45 * rho) * (Math.sin(ps) > 0 ? 1 : 0.8));
+    }
+    const dir = norm([k * 0.35, -1, 0.15]);
+    for (let m = 0; m < 260; m++) {
+      const v = rnd(), w = rr(-1, 1);
+      if (v > 1 - 0.12 * (1 - Math.abs(w))) continue;
+      const x = dir[0] * v * 0.42 + w * 0.03, y = dir[1] * v * 0.42, z = dir[2] * v * 0.42 + 0.02;
+      pt(g, x * 0.1, y * 0.1, z * 0.1, x, y, z, 232, 112, 162, M_XO, (0.6 + 0.3 * (1 - v)) * rr(0.85, 1));
+    }
+  }
+  for (let m = 0; m < 70; m++) {
+    const a = rnd() * TAU, r = 0.035 * Math.sqrt(rnd());
+    pt(g, 0, 0, 0, Math.cos(a) * r, Math.sin(a) * r, 0.05, 205, 92, 140, M_XO, rr(0.6, 0.85));
+  }
+}
+function foliage(g) {
+  for (let m = 0; m < 7000; m++) {
+    const th = rnd() * TAU, ph = Math.acos(rr(-0.1, 1)), k = rr(0.9, 1);
+    const x = Math.sin(ph) * Math.cos(th) * 1.0 * k, y = 0.15 + Math.sin(ph) * Math.sin(th) * 0.85 * k, z = -0.12 + Math.cos(ph) * 0.62 * k;
+    const c = rnd() < 0.85 ? [rr(28, 45), rr(62, 88), rr(36, 52)] : [52, 40, 58];
+    pt(g, x, y, z, x, y, z, c[0], c[1], c[2], M_seer, rr(0.3, 0.6), rnd() * 1.0);
+  }
+}
+
+/* ---------- assemble the bouquet (positions traced from the reference photo) ---------- */
+const domeZ = (X, Y) => 0.5 * Math.sqrt(Math.max(0, 1.25 - X * X - (Y - 0.2) * (Y - 0.2)));
+const toScene = (x, y) => [x * 1.02, 0.15 + y * 0.85];
+const counted = [];
+function flowerAt(x, y, extraZ, o) {
+  const [X, Y] = toScene(x, y);
+  const C = [X, Y, domeZ(X, Y) + extraZ];
+  return group(C, [X * 0.8, (Y - 0.2) * 0.8 + 0.15, 1.0], o);
+}
+
+group([0, 0, 0], null, { appearAt: T.paper }); kraftCone(G.length - 1);
+group([0, 0, 0], null, { appearAt: T.paper - 0.4 }); backPanels(G.length - 1);
+group([0, 0, 0], null, { appearAt: T.fill - 0.6 }); foliage(G.length - 1);
+
+const FL = [
+  ['ger', 0.02, 0.00, 0.44, [246, 108, 146], [70, 45, 30]],
+  ['rose', -0.62, -0.38, 0.26, [250, 78, 48]],
+  ['ger', 0.62, -0.02, 0.40, [246, 236, 206], [95, 80, 35]],
+  ['rose', 0.02, 0.52, 0.18, [246, 72, 46]],
+  ['ger', -0.45, 0.45, 0.32, [178, 162, 238], [60, 40, 70]],
+  ['rose', -0.12, -0.48, 0.19, [252, 108, 62]],
+  ['chry', 0.12, 0.80, 0.30, [252, 204, 56], [150, 110, 30]],
+  ['daisy', 0.25, -0.48, 0.17, [222, 112, 212], [240, 200, 70]],
+  ['ger', 0.68, 0.42, 0.30, [246, 124, 158], [80, 45, 35]],
+  ['daisy', 0.30, 0.30, 0.14, [164, 134, 232], [240, 200, 70]],
+  ['rose', 0.38, 0.60, 0.16, [248, 90, 56]],
+  ['pom', -0.28, 0.74, 0.14, [238, 98, 154]],
+  ['cham', -0.78, 0.28, 0.09], ['cham', -0.30, 0.24, 0.08], ['cham', 0.84, 0.66, 0.09],
+  ['cham', -0.06, 0.70, 0.08], ['cham', 0.46, 0.18, 0.08],
+];
+const WHITE = [246, 246, 240], YEL = [240, 200, 60];
+FL.forEach(([type, x, y, s, col, cen], i) => {
+  const color = col || WHITE;
+  const g = flowerAt(x, y, type === 'cham' ? 0.06 : type === 'daisy' ? 0.04 : 0, {
+    appearAt: T.fill + rnd() * 0.8, bloomAt: T.bloom + i * T.step, bloomDur: T.dur,
+    counted: true, wind: 1, petal: color, size: s, tint: true });
+  counted.push(G[g]);
+  if (type === 'ger') gerbera(g, s, color, cen);
+  else if (type === 'chry') gerbera(g, s, color, cen, 40, 0.7);
+  else if (type === 'rose') rose(g, s, color);
+  else if (type === 'daisy') daisy(g, s, color, cen, 18);
+  else if (type === 'pom') pom(g, s, color);
+  else daisy(g, s, WHITE, YEL, 14);
+});
+
+const fillerOpts = () => ({ appearAt: T.fill + rnd() * 0.6, bloomAt: T.fill + 0.3 + rnd() * 0.8, bloomDur: 1.6, wind: 1.4 });
+[[-0.52, 0.08, [250, 160, 200]], [-0.82, -0.05, [250, 160, 200]], [-0.15, 0.32, [250, 160, 200]],
+ [-0.35, 0.05, [70, 200, 205]], [0.32, -0.28, [70, 200, 205]], [0.45, 0.28, [70, 200, 205]], [-0.62, 0.18, [70, 200, 205]],
+ [-0.70, 0.36, [240, 240, 245]], [0.80, 0.30, [240, 240, 245]], [-0.20, 0.88, [240, 240, 245]]]
+  .forEach(([x, y, c]) => breath(flowerAt(x, y, 0.07, fillerOpts()), c));
+[[-0.92, 0.20], [-0.75, 0.62], [0.88, 0.55], [0.25, 0.98], [-0.95, -0.12], [0.95, 0.10], [-0.45, 0.88]].forEach(([x, y]) => {
+  const [X, Y] = toScene(x, y);
+  goldenrod(group([X * 0.92, Y, domeZ(X, Y) - 0.12], [X, Y - 0.15, 0.5], fillerOpts()), rr(0.3, 0.42));
+});
+[[-0.95, -0.32, 0.34], [0.92, -0.30, 0.3], [0.2, -0.62, 0.2]].forEach(([x, y, L]) => {
+  const [X, Y] = toScene(x, y);
+  leaf(group([X * 0.9, Y, domeZ(X, Y) - 0.05], [X, Y - 0.25, 0.45], fillerOpts()), L, L * 0.3);
+});
+
+group([0, 0, 0], null, { appearAt: T.paper + 0.8 }); cellophane(G.length - 1);
+group([0, 0, 0], null, { appearAt: T.ribbon }); ribbonBand(G.length - 1);
+const bowG = group([0, RY, RR + 0.02], [0, 0, 1], { spin: false, appearAt: T.ribbon + 0.7, bloomAt: T.ribbon + 0.7, bloomDur: 1.1 });
+ribbonBow(bowG);
+
+/* pack into typed arrays */
+const NP = PG.length;
+const pg = Int16Array.from(PG), pl = Float32Array.from(PL), pc = Float32Array.from(PC);
+const ps = Float32Array.from(PS), pgl = Uint8Array.from(PGl), pd = Float32Array.from(PD);
+const NFL = counted.length;
+
+/* ---------- screen grid ---------- */
+let W, H, DPR, FS, FONT, CW, CH, COLS, ROWS, SCALE, CX, CY;
+let zb, cg, cr, cgr, cb, touched, nt = 0;
+const PERSP = 6;
+let rcy = 1, rsy = 0, rcx = 1, rsx = 0;
+
+function project(x, y, z) {
+  const x1 = x * rcy + z * rsy, z1 = -x * rsy + z * rcy;
+  const y2 = y * rcx - z1 * rsx, z2 = y * rsx + z1 * rcx;
+  const f = PERSP / (PERSP - z2);
+  return [CX + x1 * SCALE * f, CY - y2 * SCALE * f, z2];
+}
+function put(idx, z, glyph, r, g, b) {
+  if (z <= zb[idx]) return;
+  if (zb[idx] === -1e9) touched[nt++] = idx;
+  zb[idx] = z; cg[idx] = glyph; cr[idx] = r; cgr[idx] = g; cb[idx] = b;
+}
+function putPx(px, py, z, glyph, r, g, b) {
+  const c = (px / CW) | 0, rw = (py / CH) | 0;
+  if (px < 0 || py < 0 || c >= COLS || rw >= ROWS) return;
+  put(rw * COLS + c, z, glyph, r, g, b);
+}
+const CC = new Array(32768);
+function css(r, g, b) {
+  const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+  return CC[k] || (CC[k] = `rgb(${(r >> 3) << 3},${(g >> 3) << 3},${(b >> 3) << 3})`);
+}
+
+/* ---------- stars ---------- */
+const stars = [];
+for (let i = 0; i < 380; i++) {
+  stars.push({ x: Math.random(), y: Math.random(), ph: Math.random() * TAU, sp: 0.6 + Math.random() * 2.2,
+    base: 0.3 + Math.random() * 0.7, fl: Math.random() });
+}
+
+/* ---------- tap heart: outline, blank inside, a big S made of S's ---------- */
+let HEART = [];
+function buildHeart() {
+  const HW = Math.min(W * 0.42, 190), k = HW / 2.3;
+  const nc = Math.ceil(HW / CW / 2) + 2, nr = Math.ceil(HW * 1.15 / CH / 2) + 2;
+  const inside = (dc, dr) => {
+    const x = dc * CW / k, y = -dr * CH / k + 0.15, a = x * x + y * y - 1;
+    return a * a * a - x * x * y * y * y <= 0;
+  };
+  const offW = nc * 2 + 1, offH = Math.ceil((nr * 2 + 1) * CH / CW);
+  const oc = document.createElement('canvas'); oc.width = offW; oc.height = offH;
+  const o = oc.getContext('2d', { willReadFrequently: true });
+  o.font = `700 ${HW * 0.72 / CW}px Georgia, "Times New Roman", serif`;
+  o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillStyle = '#fff';
+  o.fillText('S', offW / 2, offH / 2 - HW * 0.05 / CW);
+  const data = o.getImageData(0, 0, offW, offH).data;
+  HEART = [];
+  for (let dr = -nr; dr <= nr; dr++) for (let dc = -nc; dc <= nc; dc++) {
+    if (!inside(dc, dr)) continue;
+    const edge = !inside(dc + 1, dr) || !inside(dc - 1, dr) || !inside(dc, dr + 1) || !inside(dc, dr - 1);
+    let kind = edge ? 1 : 0;
+    if (!edge) {
+      const sx = Math.floor(dc + offW / 2), sy = Math.floor(dr * CH / CW + offH / 2);
+      if (sy >= 0 && sy < offH && data[(sy * offW + sx) * 4 + 3] > 110) kind = 2;
+    }
+    HEART.push({ dc, dr, kind });
+  }
+}
+const bursts = [];
+
+function resize() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2.5);
+  cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  SCALE = Math.min(H * 0.86 / 3.55, W * 0.94 / 3.3);
+  FS = clamp(Math.round(SCALE * 2.2 / (95 * 0.6)), 6, 12); // about 95 letters across the flowers
+  FONT = `${FS}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
+  ctx.font = FONT; CW = ctx.measureText('M').width || FS * 0.6; CH = Math.round(FS * 1.08);
+  TAG_FONT = `600 ${Math.round(FS * 2.2)}px "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace`;
+  ctx.font = TAG_FONT; TAG_COLS = Math.ceil((ctx.measureText('Seer').width || FS * 5.3) / CW) + 4;
+  COLS = Math.ceil(W / CW); ROWS = Math.ceil(H / CH);
+  const n = COLS * ROWS;
+  zb = new Float32Array(n); cg = new Uint8Array(n); cr = new Uint8ClampedArray(n);
+  cgr = new Uint8ClampedArray(n); cb = new Uint8ClampedArray(n); touched = new Int32Array(n);
+  CX = W / 2; CY = H * 0.5 - 0.25 * SCALE; // bouquet spans y -2.0..1.5, so its middle (-0.25) sits mid-screen
+  buildHeart();
+}
+
+/* ---------- falling petals ---------- */
+const petals = [];
+const PETAL_GL = WORDS[0];
+function spawnPetal(x, y, col) {
+  petals.push({ x, y, vx: (Math.random() - 0.5) * 16, vy: 5 + Math.random() * 15, ph: Math.random() * TAU, life: 0,
+    col, gl: PETAL_GL[(Math.random() * PETAL_GL.length) | 0] });
+}
+
+/* ---------- the "Seer" name tag, tied to the bow with a string ---------- */
+const TG = { dot: gi('.'), dash: gi('-'), bar: gi('|'), quote: gi("'"), hole: gi('o'), bs: gi('\\'), sl: gi('/') };
+const TAG_ROWS = 5;
+let TAG_FONT = '', TAG_COLS = 13;
+const inGrid = (c, r) => c >= 0 && r >= 0 && c < COLS && r < ROWS;
+
+/* ---------- frame ---------- */
+let t0 = performance.now() - (reduce ? 26000 : 0), last = performance.now(), petalAcc = 0;
+
+function frame(now) {
+  const t = (now - t0) / 1000, dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
+  const sway = reduce ? 0.3 : 1;
+  const ry = sway * (0.36 * Math.sin(t * 0.21) + 0.08 * Math.sin(t * 0.53));
+  const rx = 0.12 + sway * 0.03 * Math.sin(t * 0.37);
+  rcy = Math.cos(ry); rsy = Math.sin(ry); rcx = Math.cos(rx); rsx = Math.sin(rx);
+
+  zb.fill(-1e9); nt = 0;
+
+  /* stars */
+  for (const s of stars) {
+    const x = s.x + Math.sin(t * 0.05 + s.ph) * 0.004, y = (s.y + t * 0.0016 * s.base) % 1;
+    let v = s.base * (0.55 + 0.45 * Math.sin(t * s.sp + s.ph)); v *= v;
+    const fp = (t * 0.11 + s.fl) % 1;
+    if (fp < 0.02) v = Math.max(v, 1.2 * (1 - fp / 0.02));
+    if (v < 0.1) continue;
+    const c = (x * COLS) | 0, r = (y * ROWS) | 0;
+    if (c < 0 || r < 0 || c >= COLS || r >= ROWS) continue;
+    const gl = v > 0.75 ? G_STAR : v > 0.5 ? G_PLUS : v > 0.28 ? G_MID : G_DOT, k = Math.min(1, v);
+    put(r * COLS + c, -100, gl, 195 * k, 205 * k, 235 * k);
+  }
+
+  /* groups: bloom state, a little wind, screen position */
+  for (const g of G) {
+    if (g.bloomAt < 0) g.b = 1;
+    else { const p = (t - g.bloomAt) / g.bloomDur; g.b = p <= 0 ? 0 : p >= 1 ? 1 : easeOutBack(p); }
+    g.wx = Math.sin(t * 0.9 + g.ph) * 0.012 * g.wind;
+    g.wy = Math.cos(t * 0.7 + g.ph * 1.3) * 0.008 * g.wind;
+    if (g.counted) {
+      const s = project(g.C[0] + g.wx, g.C[1] + g.wy, g.C[2]); g.sx = s[0]; g.sy = s[1];
+    }
+  }
+
+  /* bouquet points */
+  const k1 = SCALE;
+  for (let i = 0; i < NP; i++) {
+    const g = G[pg[i]];
+    const age = t - g.appearAt - pd[i];
+    if (age < 0) continue;
+    const b = g.b, j = i * 6;
+    const lx = pl[j] + (pl[j + 3] - pl[j]) * b, ly = pl[j + 1] + (pl[j + 4] - pl[j + 1]) * b, lz = pl[j + 2] + (pl[j + 5] - pl[j + 2]) * b;
+    const U = g.U, V = g.V, N = g.N, C = g.C;
+    const wx = C[0] + U[0] * lx + V[0] * ly + N[0] * lz + g.wx;
+    const wy = C[1] + U[1] * lx + V[1] * ly + N[1] * lz + g.wy;
+    const wz = C[2] + U[2] * lx + V[2] * ly + N[2] * lz;
+    const x1 = wx * rcy + wz * rsy, z1 = -wx * rsy + wz * rcy;
+    const y2 = wy * rcx - z1 * rsx, z2 = wy * rsx + z1 * rcx;
+    const f = PERSP / (PERSP - z2);
+    const px = CX + x1 * k1 * f, py = CY - y2 * k1 * f;
+    if (px < 0 || py < 0) continue;
+    const c = (px / CW) | 0, r = (py / CH) | 0;
+    if (c >= COLS || r >= ROWS) continue;
+    const idx = r * COLS + c;
+    if (z2 <= zb[idx]) continue;
+    let br = ps[i] * (0.68 + 0.32 * clamp((z2 + 1.1) / 2.2, 0, 1)) * 1.2;
+    if (age < 0.35) br *= age / 0.35;
+    const q = i * 3;
+    let R = pc[q], Gc = pc[q + 1], Bc = pc[q + 2];
+    if (g.tint && b < 1) { const m = (1 - b) * (1 - b) * 0.7; R += (60 - R) * m; Gc += (120 - Gc) * m; Bc += (55 - Bc) * m; }
+    let gl = pgl[i];
+    if (gl >= 200) { const wd = WORDS[gl - 200]; gl = wd[(c + 2 * r) % wd.length]; }
+    put(idx, z2, gl, R * br, Gc * br, Bc * br);
+  }
+
+  /* name tag: the string runs out from the bow knot first, then the tag appears and the name types in */
+  let tagText = null, tagX = 0, tagY = 0;
+  if (t >= T.tag) {
+    const k = project(0, RY, RR + 0.07), p = project(0.26, -1.62, 0.62);
+    const kc = Math.round(k[0] / CW), kr = Math.round(k[1] / CH);
+    const c0 = Math.round(p[0] / CW), r0 = Math.round(p[1] / CH);
+    const dc = c0 - kc, dr = r0 - kr, n = Math.max(1, Math.abs(dc), Math.abs(dr));
+    const dxp = dc * CW, dyp = dr * CH;
+    const sg = Math.abs(dyp) > 2 * Math.abs(dxp) ? TG.bar : Math.abs(dxp) > 2 * Math.abs(dyp) ? TG.dash : dxp * dyp > 0 ? TG.bs : TG.sl;
+    const reach = n * clamp((t - T.tag) / 0.5, 0, 1);
+    for (let s = 1; s < reach; s++) {
+      const c = kc + Math.round(dc * s / n), r = kr + Math.round(dr * s / n);
+      if (inGrid(c, r)) put(r * COLS + c, 89, sg, 226, 196, 128);
+    }
+    if (t >= T.tag + 0.5) {
+      const last = TAG_COLS - 1, edgeR = TAG_ROWS - 1;
+      for (let r = 0; r <= edgeR; r++) for (let c = 0; c <= last; c++) {
+        const cc = c0 + c, rw = r0 + r;
+        if (!inGrid(cc, rw)) continue;
+        let glyph = 0;
+        if (r === 0 && c === 0) glyph = TG.hole;
+        else if (r === 0 || r === edgeR) glyph = c === 0 || c === last ? (r === 0 ? TG.dot : TG.quote) : TG.dash;
+        else if (c === 0 || c === last) glyph = TG.bar;
+        put(rw * COLS + cc, 90, glyph, 214, 174, 96);
+      }
+      tagText = 'Seer'.slice(0, Math.floor((t - T.tag - 0.5) / 0.18));
+      tagX = (c0 + TAG_COLS / 2) * CW; tagY = (r0 + TAG_ROWS / 2) * CH;
+    }
+  }
+
+  /* petals */
+  if (!reduce && t > T.petals) {
+    petalAcc += dt * 1.5;
+    while (petalAcc > 1) {
+      petalAcc -= 1;
+      const g = counted[(Math.random() * NFL) | 0], rad = g.size * SCALE * 0.6;
+      spawnPetal(g.sx + (Math.random() - 0.5) * rad, g.sy + (Math.random() - 0.5) * rad, g.petal);
+    }
+  }
+  for (let i = petals.length - 1; i >= 0; i--) {
+    const p = petals[i];
+    p.life += dt; p.vy = Math.min(p.vy + 40 * dt, 42); p.vx *= 1 - 1.5 * dt;
+    p.x += (p.vx + Math.sin(p.life * 1.8 + p.ph) * 14) * dt; p.y += p.vy * dt;
+    if (p.y > H + 10 || p.x < -20 || p.x > W + 20) { petals.splice(i, 1); continue; }
+    const fade = Math.min(1, p.life * 3) * (1 - 0.5 * p.y / H);
+    putPx(p.x, p.y, 100, p.gl, p.col[0] * fade, p.col[1] * fade, p.col[2] * fade);
+  }
+
+  /* tap hearts: pop out (0-0.5s), hold with the S inside (to 1.7s), then crumble and fall */
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const B = bursts[i], a = (now - B.born) / 1000;
+    if (a > 3.4) { bursts.splice(i, 1); continue; }
+    if (a < 1.7) {
+      const grow = a < 0.5 ? easeOutBack(a / 0.5) : 1;
+      if (a > 0.25) {
+        const f = clamp((a - 0.25) / 0.3, 0, 1);
+        for (const h of HEART) {
+          if (h.kind === 1) continue;
+          const c = B.c0 + h.dc, r = B.r0 + h.dr;
+          if (!inGrid(c, r)) continue;
+          if (h.kind === 2) put(r * COLS + c, 95, G_S, 255 * f, 236 * f, 242 * f);
+          else put(r * COLS + c, 95, 0, 0, 0, 0);
+        }
+      }
+      for (const p of B.parts) {
+        const c = B.c0 + Math.round(p.dc * grow), r = B.r0 + Math.round(p.dr * grow);
+        if (!inGrid(c, r)) continue;
+        const w = 0.8 + 0.2 * Math.sin(a * 8 + p.ph);
+        put(r * COLS + c, 96, w > 0.97 ? G_PLUS : G_STAR, 255 * w, 92 * w, 142 * w);
+      }
+    } else {
+      const d = a - 1.7, fade = 1 - d / 1.7;
+      if (d < 0.4) {
+        const f = 1 - d / 0.4;
+        for (const h of HEART) {
+          if (h.kind !== 2) continue;
+          const c = B.c0 + h.dc, r = B.r0 + h.dr + Math.round(d * 6);
+          if (inGrid(c, r)) put(r * COLS + c, 95, G_S, 255 * f, 236 * f, 242 * f);
+        }
+      }
+      for (const p of B.parts) {
+        putPx((B.c0 + p.dc) * CW + p.vx * d, (B.r0 + p.dr) * CH + p.vy * d + 70 * d * d, 96, G_STAR,
+          255 * fade, 92 * fade, 142 * fade);
+      }
+    }
+  }
+
+  /* draw */
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+  ctx.font = FONT; ctx.textBaseline = 'top';
+  for (let k = 0; k < nt; k++) {
+    const idx = touched[k], g = cg[idx];
+    if (!g) continue;
+    ctx.fillStyle = css(cr[idx], cgr[idx], cb[idx]);
+    ctx.fillText(GL[g], (idx % COLS) * CW, ((idx / COLS) | 0) * CH);
+  }
+  if (tagText) {
+    ctx.font = TAG_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgb(255,226,150)';
+    ctx.fillText(tagText, tagX, tagY);
+    ctx.textAlign = 'left';
+  }
+  requestAnimationFrame(frame);
+}
+
+cvs.addEventListener('pointerdown', e => {
+  if (bursts.length > 5) bursts.shift();
+  bursts.push({ c0: Math.round(e.clientX / CW), r0: Math.round(e.clientY / CH), born: last,
+    parts: HEART.filter(h => h.kind === 1).map(h => ({ dc: h.dc, dr: h.dr, ph: Math.random() * TAU,
+      vx: (Math.random() - 0.5) * 60 + h.dc * CW * 0.8, vy: -20 - Math.random() * 40 + h.dr * CH * 0.3 })) });
+});
+addEventListener('resize', resize);
+if (document.fonts && document.fonts.load) document.fonts.load('10px "JetBrains Mono"').then(resize, () => {});
+resize();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
