@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Bouquet for Seer</title>
+<title>💐</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
@@ -224,19 +224,6 @@ function backPanels(g) {
     }
   });
 }
-function cellophane(g) {
-  const SL = gi('/'), BS = gi('\\');
-  for (let m = 0; m < 2400; m++) {
-    const th = rr(-1.7, 1.7), y = rr(YB, -0.25);
-    let r = coneR(y) * 1.1 + 0.02;
-    if (y > -0.6) r += (y + 0.6) * 0.5;
-    const sheen = 0.25 + 0.6 * Math.pow(Math.max(0, Math.cos(th * 3 + 0.6)), 6);
-    if (rnd() > 0.2 + sheen * 0.6) continue;
-    const x = r * Math.sin(th), z = r * Math.cos(th);
-    pt(g, x, y, z, x, y, z, 175, 195, 215, sheen > 0.5 ? (th < 0 ? SL : BS) : G_DOT, sheen * rr(0.6, 1),
-      (y - YB) / 2.2 * 1.6 + rnd() * 0.5);
-  }
-}
 const RY = -1.42, RR = coneR(RY) + 0.035;
 function ribbonBand(g) {
   for (let m = 0; m < 900; m++) {
@@ -334,7 +321,6 @@ const fillerOpts = () => ({ appearAt: T.fill + rnd() * 0.6, bloomAt: T.fill + 0.
   leaf(group([X * 0.9, Y, domeZ(X, Y) - 0.05], [X, Y - 0.25, 0.45], fillerOpts()), L, L * 0.3);
 });
 
-group([0, 0, 0], null, { appearAt: T.paper + 0.8 }); cellophane(G.length - 1);
 group([0, 0, 0], null, { appearAt: T.ribbon }); ribbonBand(G.length - 1);
 const bowG = group([0, RY, RR + 0.02], [0, 0, 1], { spin: false, appearAt: T.ribbon + 0.7, bloomAt: T.ribbon + 0.7, bloomDur: 1.1 });
 ribbonBow(bowG);
